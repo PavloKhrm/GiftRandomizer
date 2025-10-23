@@ -1,21 +1,15 @@
-from db import db_conn
+from db import execute, fetch
 
 async def add_owner_channel(owner_id: int, chat_id: str):
-    async with db_conn() as db:
-        try:
-            await db.execute("INSERT INTO my_channels(owner_id, chat_id) VALUES(?,?)",(owner_id, chat_id))
-            await db.commit()
-            return True
-        except Exception:
-            return False
+    try:
+        await execute("INSERT INTO my_channels(owner_id, chat_id) VALUES($1,$2)", owner_id, chat_id)
+        return True
+    except Exception:
+        return False
 
 async def del_owner_channel(owner_id: int, chat_id: str):
-    async with db_conn() as db:
-        await db.execute("DELETE FROM my_channels WHERE owner_id=? AND chat_id=?",(owner_id, chat_id))
-        await db.commit()
+    await execute("DELETE FROM my_channels WHERE owner_id=$1 AND chat_id=$2", owner_id, chat_id)
 
 async def list_owner_channels(owner_id: int):
-    async with db_conn() as db:
-        cur = await db.execute("SELECT chat_id FROM my_channels WHERE owner_id=?",(owner_id,))
-        rows = await cur.fetchall()
-        return [r[0] for r in rows]
+    rows = await fetch("SELECT chat_id FROM my_channels WHERE owner_id=$1", owner_id)
+    return [r["chat_id"] for r in rows]

@@ -1,0 +1,14 @@
+[project]
+name = "randomizer-bot"
+
+[build]
+builder = "NIXPACKS"
+
+[variables]
+PYTHONUNBUFFERED = "1"
+
+[deploy]
+restartPolicyType = "ON_FAILURE"
+
+[services.bot]
+startCommand = "python3 main.py"

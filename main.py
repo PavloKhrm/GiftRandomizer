@@ -4,7 +4,7 @@ import random
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from config import settings
-from db import init_db, db_conn
+from db import init_db, fetch
 from handlers import register_handlers
 from services.giveaways import list_requirements, list_entries, get_giveaway, mark_closed
 from services.subscription import is_member_everywhere
@@ -22,17 +22,17 @@ async def auto_draw_loop(bot: Bot):
     while True:
         now = int(time.time())
         try:
-            async with db_conn() as db:
-                cur = await db.execute(
-                    "SELECT id FROM giveaways WHERE ends_at IS NOT NULL AND ends_at <= ? AND closed=0",
-                    (now,)
-                )
-                ids = [r[0] for r in await cur.fetchall()]
+            rows = await fetch(
+                "SELECT id FROM giveaways WHERE ends_at IS NOT NULL AND ends_at <= $1 AND closed=0",
+                now
+            )
+            ids = [r["id"] for r in rows]
             for gid in ids:
                 row = await get_giveaway(gid)
                 if not row:
                     continue
-                _, owner_id, title, caption, media_type, media_file_id, button_text, allow_no_sub, ends_at, post_chat_id, post_message_id, closed, winners_count = row
+                (_, owner_id, title, caption, media_type, media_file_id, button_text,
+                 allow_no_sub, ends_at, post_chat_id, post_message_id, closed, winners_count) = tuple(row.values())
                 reqs = await list_requirements(gid)
                 users = await list_entries(gid)
                 pool = []
@@ -50,9 +50,9 @@ async def auto_draw_loop(bot: Bot):
                 chosen = random.sample(pool, k)
                 labels = [f"• {await winner_label(bot, uid)}" for uid in chosen]
                 text = "🎉 Итоги: <b>{}</b>\n{}".format(title or "Розыгрыш", "\n".join(labels))
-                target_chat = int(post_chat_id) if post_chat_id else owner_id
+                target = int(post_chat_id) if post_chat_id else owner_id
                 try:
-                    await bot.send_message(target_chat, text)
+                    await bot.send_message(target, text)
                 except Exception:
                     await bot.send_message(owner_id, text)
                 await mark_closed(gid)

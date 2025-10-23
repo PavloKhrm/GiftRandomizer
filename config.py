@@ -8,9 +8,10 @@ load_dotenv()
 class Settings:
     bot_token: str
     admin_ids: list[int]
-    db_path: str = "giveaway.db"
+    database_url: str
 
 settings = Settings(
-    bot_token=os.getenv("BOT_TOKEN",""),
-    admin_ids=[int(x) for x in os.getenv("ADMIN_IDS","").replace(" ","").split(",") if x]
+    bot_token=os.getenv("BOT_TOKEN", ""),
+    admin_ids=[int(x) for x in os.getenv("ADMIN_IDS", "").replace(" ", "").split(",") if x],
+    database_url=os.getenv("DATABASE_URL", "")
 )
