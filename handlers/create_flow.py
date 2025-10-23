@@ -55,7 +55,7 @@ async def custom_btn(m: Message, state: FSMContext):
 
 @router.callback_query(CreateGiveaway.waiting_requirements, F.data == "req:add")
 async def req_add_prompt(cq: CallbackQuery):
-    await cq.message.answer("Отправьте @юзернейм канала или перешлите сообщение из канала")
+    await cq.message.answer("Надішліть @юзернейм каналу або перешліть повідомлення з каналу")
     await cq.answer()
 
 @router.message(CreateGiveaway.waiting_requirements, F.forward_from_chat | F.text)
@@ -96,7 +96,7 @@ async def set_end_datetime(m: Message, state: FSMContext):
         dt = datetime.datetime.strptime(txt, "%Y-%m-%d %H:%M")
         ends_at = int(dt.timestamp())
     except Exception:
-        await m.answer("Неверный формат. Пример: 2025-11-03 18:30")
+        await m.answer("Невірний формат. Приклад: 2025-11-03 18:30")
         return
     data = await state.get_data()
     gid = data.get("gid")
@@ -109,7 +109,7 @@ async def set_winners(m: Message, state: FSMContext):
     try:
         n = max(1, min(100, int(m.text.strip())))
     except Exception:
-        await m.answer("Введите целое число от 1 до 100")
+        await m.answer("Введіть ціле число від 1 до 100")
         return
     data = await state.get_data()
     gid = data.get("gid")
@@ -125,11 +125,11 @@ async def set_post_channel(m: Message, state: FSMContext, bot: Bot):
     try:
         info = await bot.get_chat(chat_id)
     except Exception:
-        await m.answer("Не смог получить доступ к каналу. Проверьте, что бот администратор.")
+        await m.answer("Не вдалося отримати доступ до каналу. Переконайтеся, що бот — адміністратор.")
         return
     await set_post_target(gid, str(info.id), None)
     await state.clear()
-    await m.answer("Черновик создан и цель публикации сохранена. Откройте «📦 Мои розыгрыши» чтобы получить пост и опубликовать.")
+    await m.answer("Чернетку створено та ціль публікації збережено. Відкрийте «📦 Мої розіграші», щоб отримати пост і опублікувати.")
 
 def setup(dp):
     dp.include_router(router)

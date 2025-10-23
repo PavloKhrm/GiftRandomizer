@@ -7,7 +7,7 @@ from keyboards.reply import main_menu
 
 router = Router()
 
-@router.message(F.text == "🎁 Создать розыгрыш")
+@router.message(F.text == "🎁 Створити розіграш")
 async def create_start(m: Message, state: FSMContext):
     await state.clear()
     await state.update_data(gid=None)

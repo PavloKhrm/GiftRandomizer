@@ -10,19 +10,19 @@ async def on_join(cq: CallbackQuery, bot: Bot):
     try:
         giveaway_id = int(cq.data.split(":")[1])
     except Exception:
-        await cq.answer("Ошибка.", show_alert=True)
+        await cq.answer("Помилка.", show_alert=True)
         return
     reqs = await list_requirements(giveaway_id)
     if reqs:
         ok = await is_member_everywhere(bot, cq.from_user.id, reqs)
         if not ok:
-            await cq.answer("Чтобы принять участие, подпишитесь на канал(ы) и снова нажмите кнопку.", show_alert=True)
+            await cq.answer("Щоб взяти участь, підпишіться на канал(и) і натисніть кнопку ще раз.", show_alert=True)
             return
     added = await add_entry(giveaway_id, cq.from_user.id)
     if added:
-        await cq.answer("Участие засчитано ✅", show_alert=True)
+        await cq.answer("Участь зараховано ✅", show_alert=True)
     else:
-        await cq.answer("Вы уже участвуете", show_alert=True)
+        await cq.answer("Ви вже берете участь", show_alert=True)
 
 def setup(dp):
     dp.include_router(router)

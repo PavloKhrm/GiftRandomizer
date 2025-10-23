@@ -3,8 +3,8 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 def main_menu():
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🎁 Создать розыгрыш")],
-            [KeyboardButton(text="📦 Мои розыгрыши"), KeyboardButton(text="📣 Мои каналы")]
+            [KeyboardButton(text="🎁 Створити розіграш")],
+            [KeyboardButton(text="📦 Мої розіграші"), KeyboardButton(text="📣 Мої канали")]
         ],
         resize_keyboard=True
     )

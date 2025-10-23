@@ -7,7 +7,7 @@ router = Router()
 
 @router.message(CommandStart())
 async def start(m: Message):
-    await m.answer("Главное меню", reply_markup=main_menu())
+    await m.answer("Головне меню", reply_markup=main_menu())
 
 def setup(dp):
     dp.include_router(router)

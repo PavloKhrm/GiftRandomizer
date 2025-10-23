@@ -7,13 +7,13 @@ from keyboards.reply import main_menu
 
 router = Router()
 
-@router.message(F.text == "📣 Мои каналы")
+@router.message(F.text == "📣 Мої канали")
 async def my_channels(m: Message):
     ids = await list_owner_channels(m.from_user.id)
     prev = await channel_preview(m.bot, ids)
     kb = channels_manage([(n,u,c) for (n,u),c in zip(prev, ids)])
-    await m.answer("📣 Мои каналы", reply_markup=kb or main_menu())
-    await m.answer("Отправьте @юзернейм или перешлите сообщение из канала, чтобы добавить")
+    await m.answer("📣 Мої канали", reply_markup=kb or main_menu())
+    await m.answer("Надішліть @юзернейм або перешліть повідомлення з каналу, щоб додати")
 
 @router.callback_query(F.data.startswith("mc:del:"))
 async def mc_del(cq: CallbackQuery):
@@ -24,11 +24,11 @@ async def mc_del(cq: CallbackQuery):
     from keyboards.inline import channels_manage
     kb = channels_manage([(n,u,c) for (n,u),c in zip(prev, ids)])
     await cq.message.edit_reply_markup(reply_markup=kb)
-    await cq.answer("Удалено")
+    await cq.answer("Видалено")
 
 @router.callback_query(F.data == "mc:add")
 async def mc_add_hint(cq: CallbackQuery):
-    await cq.message.answer("Отправьте @юзернейм или перешлите сообщение из канала, чтобы добавить")
+    await cq.message.answer("Надішліть @юзернейм або перешліть повідомлення з каналу, щоб додати")
     await cq.answer()
 
 @router.message(F.forward_from_chat | F.text.startswith("@"))
@@ -36,17 +36,17 @@ async def mc_add(m: Message):
     chat_id = str(m.forward_from_chat.id) if m.forward_from_chat else m.text.strip()
     ok = await bot_is_admin(m.bot, chat_id)
     if not ok:
-        await m.answer("Бот не администратор в канале или ID неверен")
+        await m.answer("Бот не адміністратор у каналі або ID некоректний")
         return
     added = await add_owner_channel(m.from_user.id, chat_id)
     if not added:
-        await m.answer("Канал уже добавлен")
+        await m.answer("Канал уже додано")
         return
     ids = await list_owner_channels(m.from_user.id)
     prev = await channel_preview(m.bot, ids)
     from keyboards.inline import channels_manage
     kb = channels_manage([(n,u,c) for (n,u),c in zip(prev, ids)])
-    await m.answer("Добавлено", reply_markup=kb or None)
+    await m.answer("Додано", reply_markup=kb or None)
 
 def setup(dp):
     dp.include_router(router)
