@@ -4,7 +4,7 @@ import random
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from config import settings
-from db import init_db, db_conn
+from db import init_db, fetch
 from handlers import register_handlers
 from services.giveaways import list_requirements, list_entries, get_giveaway, mark_closed
 from services.subscription import is_member_everywhere
@@ -22,30 +22,37 @@ async def auto_draw_loop(bot: Bot):
     while True:
         now = int(time.time())
         try:
-            async with db_conn() as db:
-                cur = await db.execute(
-                    "SELECT id FROM giveaways WHERE ends_at IS NOT NULL AND ends_at <= ? AND closed=0",
-                    (now,)
-                )
-                ids = [r[0] for r in await cur.fetchall()]
+            rows = await fetch(
+                "SELECT id FROM giveaways WHERE ends_at IS NOT NULL AND ends_at <= $1 AND closed=0",
+                now
+            )
+            ids = [r["id"] for r in rows]
             for gid in ids:
                 row = await get_giveaway(gid)
                 if not row:
                     continue
-                _, owner_id, title, caption, media_type, media_file_id, button_text, allow_no_sub, ends_at, post_chat_id, post_message_id, closed, winners_count = row
+                owner_id = row["owner_id"]
+                title = row["title"]
+                allow_no_sub = row["allow_no_sub"]
+                post_chat_id = row["post_chat_id"]
+                winners_count = row["winners_count"]
+
                 reqs = await list_requirements(gid)
                 users = await list_entries(gid)
-                pool = []
+
                 if allow_no_sub or not reqs:
                     pool = users
                 else:
+                    pool = []
                     for u in users:
                         if await is_member_everywhere(bot, u, reqs):
                             pool.append(u)
+
                 if not pool:
                     await bot.send_message(owner_id, f"⚠️ У розіграші «{title or 'Розіграш'}» немає валідних учасників.")
                     await mark_closed(gid)
                     continue
+
                 k = min(max(1, winners_count or 1), min(100, len(pool)))
                 chosen = random.sample(pool, k)
                 labels = [f"• {await winner_label(bot, uid)}" for uid in chosen]
