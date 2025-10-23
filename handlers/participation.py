@@ -20,9 +20,9 @@ async def on_join(cq: CallbackQuery, bot: Bot):
             return
     added = await add_entry(giveaway_id, cq.from_user.id)
     if added:
-        await cq.answer("Участь зараховано ✅", show_alert=True)
+        await cq.answer("Ви взяли участь🎉", show_alert=True)
     else:
-        await cq.answer("Ви вже берете участь", show_alert=True)
+        await cq.answer("Ви вже берете участь🤍", show_alert=True)
 
 def setup(dp):
     dp.include_router(router)
