@@ -7,6 +7,10 @@ from utils.formatting import normalize_channel
 from keyboards.inline import button_text_presets, req_controls
 from services.giveaways import create_giveaway, set_post, set_button_text, add_requirement, list_requirements, allow_no_subs, set_ends_at, set_post_target, set_winners_count
 from services.subscription import bot_is_admin
+from config import settings
+
+import datetime
+from zoneinfo import ZoneInfo
 
 router = Router()
 
@@ -91,10 +95,11 @@ async def req_next(cq: CallbackQuery, state: FSMContext):
 @router.message(CreateGiveaway.waiting_end_datetime, F.text.len() > 0)
 async def set_end_datetime(m: Message, state: FSMContext):
     txt = m.text.strip()
-    import datetime
     try:
-        dt = datetime.datetime.strptime(txt, "%Y-%m-%d %H:%M")
-        ends_at = int(dt.timestamp())
+        naive = datetime.datetime.strptime(txt, "%Y-%m-%d %H:%M")
+        tz = ZoneInfo(settings.timezone_name)
+        aware = naive.replace(tzinfo=tz)
+        ends_at = int(aware.astimezone(ZoneInfo("UTC")).timestamp())
     except Exception:
         await m.answer("Невірний формат. Приклад: 2025-11-03 18:30")
         return
