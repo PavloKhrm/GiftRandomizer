@@ -15,5 +15,5 @@ settings = Settings(
     bot_token=os.getenv("BOT_TOKEN", ""),
     admin_ids=[int(x) for x in os.getenv("ADMIN_IDS", "").replace(" ", "").split(",") if x],
     database_url=os.getenv("DATABASE_URL", ""),
-    timezone_name=os.getenv("TIMEZONE", "Europe/Kyiv")
+    timezone_name=os.getenv("TIMEZONE", "Europe/Vienna")
 )

@@ -35,8 +35,18 @@ async def set_ends_at(gid: int, ends_at: int):
 async def set_winners_count(gid: int, n: int):
     await execute("UPDATE giveaways SET winners_count=$1 WHERE id=$2", n, gid)
 
+async def _ensure_requirement(gid: int, chat_id: str | None):
+    if not chat_id:
+        return
+    await execute(
+        "INSERT INTO giveaway_requirements(giveaway_id, chat_id) "
+        "SELECT $1, $2 WHERE NOT EXISTS (SELECT 1 FROM giveaway_requirements WHERE giveaway_id=$1 AND chat_id=$2)",
+        gid, chat_id
+    )
+
 async def set_post_target(gid: int, chat_id: str, message_id: int | None):
     await execute("UPDATE giveaways SET post_chat_id=$1, post_message_id=$2 WHERE id=$3", chat_id, message_id, gid)
+    await _ensure_requirement(gid, chat_id)
 
 async def mark_closed(gid: int):
     await execute("UPDATE giveaways SET closed=1 WHERE id=$1", gid)

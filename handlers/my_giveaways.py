@@ -43,7 +43,8 @@ async def gw_post(cq: CallbackQuery):
         await cq.answer("Не знайдено", show_alert=True); return
     _, owner_id, title, caption, media_type, media_file_id, button_text, allow_no_sub, ends_at, post_chat_id, post_message_id, closed, winners_count = row
     reqs = await list_requirements(gid)
-    prev = await channel_preview(cq.message.bot, reqs[:3])
+    ids = reqs or ([post_chat_id] if post_chat_id else [])
+    prev = await channel_preview(cq.message.bot, ids[:3]) if ids else []
     final_caption = composed_caption(caption or "", prev, button_text or "Беру участь!")
     target_chat = int(post_chat_id) if post_chat_id else cq.from_user.id
     await build_and_send(cq.message.bot, target_chat, gid, title, final_caption, media_type, media_file_id, button_text or "Беру участь!")
