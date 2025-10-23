@@ -65,12 +65,18 @@ async def req_add_prompt(cq: CallbackQuery):
 async def req_add_handle(m: Message, state: FSMContext, bot: Bot):
     data = await state.get_data()
     gid = data.get("gid")
-    chat_id = str(m.forward_from_chat.id) if m.forward_from_chat else normalize_channel(m.text)
-    ok = await bot_is_admin(bot, chat_id)
+    raw = str(m.forward_from_chat.id) if m.forward_from_chat else normalize_channel(m.text)
+    try:
+        info = await bot.get_chat(raw)
+    except Exception:
+        await m.answer(req_invalid())
+        return
+    numeric_id = str(info.id)
+    ok = await bot_is_admin(bot, numeric_id)
     if not ok:
         await m.answer(req_invalid())
         return
-    added = await add_requirement(gid, chat_id)
+    added = await add_requirement(gid, numeric_id)
     if added:
         await m.answer(req_added())
     reqs = await list_requirements(gid)
@@ -125,9 +131,9 @@ async def set_winners(m: Message, state: FSMContext):
 async def set_post_channel(m: Message, state: FSMContext, bot: Bot):
     data = await state.get_data()
     gid = data.get("gid")
-    chat_id = str(m.forward_from_chat.id) if m.forward_from_chat else normalize_channel(m.text)
+    raw = str(m.forward_from_chat.id) if m.forward_from_chat else normalize_channel(m.text)
     try:
-        info = await bot.get_chat(chat_id)
+        info = await bot.get_chat(raw)
     except Exception:
         await m.answer("Не вдалося отримати доступ до каналу. Переконайтеся, що бот — адміністратор.")
         return
