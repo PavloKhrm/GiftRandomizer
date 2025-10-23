@@ -1,0 +1,90 @@
+import random
+from aiogram import Router, F
+from aiogram.types import Message, CallbackQuery
+from keyboards.inline import giveaways_manage, giveaway_actions
+from services.giveaways import list_by_owner, get_giveaway, list_requirements, list_entries, delete_giveaway
+from services.subscription import is_member_everywhere, channel_preview
+from services.posting import build_and_send
+from keyboards.reply import main_menu
+from utils.texts import composed_caption, finished_announce
+
+router = Router()
+
+async def winner_label(bot, user_id: int):
+    try:
+        chat = await bot.get_chat(user_id)
+        if getattr(chat, "username", None):
+            return f"@{chat.username}"
+    except Exception:
+        pass
+    return f"<a href='tg://user?id={user_id}'>профиль</a>"
+
+@router.message(F.text == "📦 Мои розыгрыши")
+async def my_gw(m: Message):
+    items = await list_by_owner(m.from_user.id)
+    kb = giveaways_manage(items)
+    await m.answer("Ваши розыгрыши", reply_markup=kb or main_menu())
+
+@router.callback_query(F.data.startswith("gw:open:"))
+async def gw_open(cq: CallbackQuery):
+    gid = int(cq.data.split(":")[2])
+    row = await get_giveaway(gid)
+    if not row:
+        await cq.answer("Не найдено", show_alert=True); return
+    _, owner_id, title, caption, media_type, media_file_id, button_text, allow_no_sub, ends_at, post_chat_id, post_message_id, closed, winners_count = row
+    await cq.message.answer(f"#{gid} {title or ''}".strip() or f"#{gid}", reply_markup=giveaway_actions(gid))
+    await cq.answer()
+
+@router.callback_query(F.data.startswith("gw:post:"))
+async def gw_post(cq: CallbackQuery):
+    gid = int(cq.data.split(":")[2])
+    row = await get_giveaway(gid)
+    if not row:
+        await cq.answer("Не найдено", show_alert=True); return
+    _, owner_id, title, caption, media_type, media_file_id, button_text, allow_no_sub, ends_at, post_chat_id, post_message_id, closed, winners_count = row
+    reqs = await list_requirements(gid)
+    prev = await channel_preview(cq.message.bot, reqs[:3])
+    channels_block = "\n".join([f"• {name} ({uname})" for name, uname in prev]) if prev else ""
+    final_caption = composed_caption(caption or "", channels_block)
+    target_chat = int(post_chat_id) if post_chat_id else cq.from_user.id
+    await build_and_send(cq.message.bot, target_chat, gid, title, final_caption, media_type, media_file_id, button_text or "Участвую!")
+    await cq.answer("Пост отправлен")
+
+@router.callback_query(F.data.startswith("gw:draw:"))
+async def gw_draw(cq: CallbackQuery):
+    gid = int(cq.data.split(":")[2])
+    row = await get_giveaway(gid)
+    if not row:
+        await cq.answer("Не найдено", show_alert=True); return
+    _, owner_id, title, caption, media_type, media_file_id, button_text, allow_no_sub, ends_at, post_chat_id, post_message_id, closed, winners_count = row
+    reqs = await list_requirements(gid)
+    users = await list_entries(gid)
+    pool = []
+    if allow_no_sub or not reqs:
+        pool = users
+    else:
+        for u in users:
+            if await is_member_everywhere(cq.message.bot, u, reqs):
+                pool.append(u)
+    if not pool:
+        await cq.answer("Нет валидных участников", show_alert=True); return
+    k = min(max(1, winners_count or 1), min(100, len(pool)))
+    chosen = random.sample(pool, k)
+    labels = [f"• {await winner_label(cq.message.bot, uid)}" for uid in chosen]
+    text = finished_announce(title, labels)
+    target_chat = int(post_chat_id) if post_chat_id else cq.message.chat.id
+    try:
+        await cq.message.bot.send_message(target_chat, text)
+    except Exception:
+        await cq.message.answer(text)
+    await cq.answer("Итоги опубликованы")
+
+@router.callback_query(F.data.startswith("gw:del:"))
+async def gw_del(cq: CallbackQuery):
+    gid = int(cq.data.split(":")[2])
+    await delete_giveaway(gid, cq.from_user.id)
+    await cq.message.answer("Удалено")
+    await cq.answer()
+
+def setup(dp):
+    dp.include_router(router)
