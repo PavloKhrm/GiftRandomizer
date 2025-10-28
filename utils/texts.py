@@ -47,7 +47,7 @@ def posting_done():
     return "Пост опубліковано"
 
 def finished_announce(title, winner_labels):
-    t = title or "Розіграш"
+    t = title or "розіграшу"
     lines = [f"{i} місце — {label}" for i, label in enumerate(winner_labels, start=1)]
     return f"🎉 Вітаємо переможців: <b>{t}</b>\n" + "\n".join(lines)
 
@@ -72,4 +72,4 @@ def composed_caption(base_text, channels, button_text):
     return base_text
 
 def join_closed():
-    return "Розіграш закінчено 🤍 Спробуйте удачу в наступному!"
+    return "Розіграш закінчено 🤍 Випробуйте удачу в наступному!"
