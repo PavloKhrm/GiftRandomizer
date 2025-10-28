@@ -47,7 +47,7 @@ def posting_done():
     return "Пост опубліковано"
 
 def finished_announce(title, winner_labels):
-    t = title or "розіграшу"
+    t = title or ""
     lines = [f"{i} місце — {label}" for i, label in enumerate(winner_labels, start=1)]
     return f"🎉 Вітаємо переможців: <b>{t}</b>\n" + "\n".join(lines)
 
