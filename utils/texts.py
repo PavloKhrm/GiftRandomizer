@@ -70,3 +70,6 @@ def composed_caption(base_text, channels, button_text):
             )
         return f"{base_text}\n\n{steps}"
     return base_text
+
+def join_closed():
+    return "Розіграш закінчено 🤍 Спробуйте удачу в наступному!"
