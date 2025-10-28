@@ -8,6 +8,7 @@ from db import init_db, fetch
 from handlers import register_handlers
 from services.giveaways import list_requirements, list_entries, get_giveaway, mark_closed
 from services.subscription import is_member_everywhere
+from utils.texts import finished_announce
 
 async def winner_label(bot, user_id: int):
     try:
@@ -49,20 +50,27 @@ async def auto_draw_loop(bot: Bot):
                             pool.append(u)
 
                 if not pool:
-                    await bot.send_message(owner_id, f"⚠️ У розіграші «{title or 'Розіграш'}» немає валідних учасників.")
                     await mark_closed(gid)
+                    try:
+                        await bot.send_message(owner_id, f"⚠️ У розіграші «{title or 'Розіграш'}» немає валідних учасників.")
+                    except Exception:
+                        pass
                     continue
 
                 k = min(max(1, winners_count or 1), min(100, len(pool)))
                 chosen = random.sample(pool, k)
-                labels = [f"• {await winner_label(bot, uid)}" for uid in chosen]
-                text = "🎉 Підсумки: <b>{}</b>\n{}".format(title or "Розіграш", "\n".join(labels))
+                names = [await winner_label(bot, uid) for uid in chosen]
+                text = finished_announce(title, names)
                 target_chat = int(post_chat_id) if post_chat_id else owner_id
+
+                await mark_closed(gid)
                 try:
                     await bot.send_message(target_chat, text)
                 except Exception:
-                    await bot.send_message(owner_id, text)
-                await mark_closed(gid)
+                    try:
+                        await bot.send_message(owner_id, text)
+                    except Exception:
+                        pass
         except Exception as e:
             print("[auto_draw_loop]", e)
         await asyncio.sleep(30)

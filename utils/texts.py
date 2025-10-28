@@ -46,9 +46,10 @@ def ask_post_channel():
 def posting_done():
     return "Пост опубліковано"
 
-def finished_announce(title, winners_lines):
+def finished_announce(title, winner_labels):
     t = title or "Розіграш"
-    return f"🎉 Підсумки: <b>{t}</b>\n" + "\n".join(winners_lines)
+    lines = [f"{i} місце — {label}" for i, label in enumerate(winner_labels, start=1)]
+    return f"🎉 Вітаємо переможців: <b>{t}</b>\n" + "\n".join(lines)
 
 def composed_caption(base_text, channels, button_text):
     if channels:
