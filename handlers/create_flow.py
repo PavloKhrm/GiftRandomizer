@@ -1,145 +1,331 @@
-from aiogram import Router, F, Bot
-from aiogram.types import Message, CallbackQuery
-from aiogram.fsm.context import FSMContext
-from states import CreateGiveaway
-from utils.texts import text_saved, ask_button_text, ask_requirements_intro, req_added, req_invalid, ready_to_post, no_requirements, ask_end_datetime, ask_post_channel, ask_winners_count
-from utils.formatting import normalize_channel
-from keyboards.inline import button_text_presets, req_controls
-from services.giveaways import create_giveaway, set_post, set_button_text, add_requirement, list_requirements, allow_no_subs, set_ends_at, set_post_target, set_winners_count
-from services.subscription import bot_is_admin
-from config import settings
 import datetime
+import time
 from zoneinfo import ZoneInfo
+
+from aiogram import Bot, F, Router
+from aiogram.fsm.context import FSMContext
+from aiogram.types import CallbackQuery, Message
+
+from config import settings
+from keyboards.inline import (
+    button_icon_controls,
+    button_style_choices,
+    button_text_presets,
+    giveaway_actions,
+    req_controls,
+)
+from keyboards.reply import MAIN_MENU_TEXTS
+from services.giveaways import (
+    add_requirement,
+    allow_no_subs,
+    clear_requirements,
+    create_giveaway,
+    get_owned_giveaway,
+    list_requirements,
+    set_button_design,
+    set_button_text,
+    set_ends_at,
+    set_post,
+    set_post_target,
+    set_winners_count,
+)
+from services.posting import validate_payload_length
+from services.subscription import bot_is_admin, channel_preview
+from states import CreateGiveaway
+from utils.entities import first_custom_emoji_id, serialize_entities
+from utils.formatting import forwarded_chat_id, has_channel_reference, normalize_channel
+from utils.texts import (
+    ask_button_icon,
+    ask_button_style,
+    ask_button_text,
+    ask_end_datetime,
+    ask_post_channel,
+    ask_requirements_intro,
+    ask_winners_count,
+    composed_caption,
+    make_title,
+    no_requirements,
+    ready_to_post,
+    req_added,
+    req_invalid,
+    text_saved,
+)
 
 router = Router()
 
-@router.message(CreateGiveaway.waiting_post, F.content_type.in_({"text","photo","video","animation"}))
-async def capture_post(m: Message, state: FSMContext):
+
+def not_main_menu(message: Message) -> bool:
+    return message.text not in MAIN_MENU_TEXTS
+
+
+async def _show_requirements(message: Message, state: FSMContext) -> None:
+    await message.answer(ask_requirements_intro(), reply_markup=req_controls())
+    await state.set_state(CreateGiveaway.waiting_requirements)
+
+
+@router.message(
+    CreateGiveaway.waiting_post,
+    F.content_type.in_({"text", "photo", "video", "animation"}),
+    not_main_menu,
+)
+async def capture_post(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     gid = data.get("gid")
     if not gid:
-        gid = await create_giveaway(m.from_user.id)
+        gid = await create_giveaway(message.from_user.id)
         await state.update_data(gid=gid)
-    title = ""
-    caption = (m.caption or m.text or "").strip() if hasattr(m, "caption") else (m.text or "").strip()
+
+    is_caption = message.caption is not None
+    body = message.caption if is_caption else (message.text or "")
+    source_entities = message.caption_entities if is_caption else message.entities
     media_type = None
     media_file_id = None
-    if getattr(m, "photo", None):
+    if message.photo:
         media_type = "photo"
-        media_file_id = m.photo[-1].file_id
-    elif getattr(m, "video", None):
+        media_file_id = message.photo[-1].file_id
+    elif message.video:
         media_type = "video"
-        media_file_id = m.video.file_id
-    elif getattr(m, "animation", None):
+        media_file_id = message.video.file_id
+    elif message.animation:
         media_type = "animation"
-        media_file_id = m.animation.file_id
-    await set_post(gid, title, caption, media_type, media_file_id)
-    await m.answer(text_saved())
-    await m.answer(ask_button_text(), reply_markup=button_text_presets())
+        media_file_id = message.animation.file_id
+
+    await set_post(
+        gid,
+        make_title(body),
+        body,
+        serialize_entities(source_entities),
+        media_type,
+        media_file_id,
+    )
+    await message.answer(text_saved())
+    await message.answer(ask_button_text(), reply_markup=button_text_presets())
     await state.set_state(CreateGiveaway.waiting_button_text)
 
-@router.callback_query(CreateGiveaway.waiting_button_text, F.data.startswith("btnpreset:"))
-async def preset_btn(cq: CallbackQuery, state: FSMContext):
-    text = cq.data.split(":",1)[1]
-    data = await state.get_data()
-    gid = data.get("gid")
-    await set_button_text(gid, text)
-    await cq.message.answer(ask_requirements_intro(), reply_markup=req_controls())
-    await state.set_state(CreateGiveaway.waiting_requirements)
-    await cq.answer()
 
-@router.message(CreateGiveaway.waiting_button_text, F.text.len() > 0)
-async def custom_btn(m: Message, state: FSMContext):
+async def _save_button_text_and_ask_style(
+    message: Message, state: FSMContext, text: str
+) -> None:
     data = await state.get_data()
-    gid = data.get("gid")
-    await set_button_text(gid, m.text.strip())
-    await m.answer(ask_requirements_intro(), reply_markup=req_controls())
-    await state.set_state(CreateGiveaway.waiting_requirements)
+    await set_button_text(data["gid"], text)
+    await message.answer(ask_button_style(), reply_markup=button_style_choices())
+    await state.set_state(CreateGiveaway.waiting_button_style)
+
+
+@router.callback_query(
+    CreateGiveaway.waiting_button_text, F.data.startswith("btnpreset:")
+)
+async def preset_btn(callback: CallbackQuery, state: FSMContext) -> None:
+    text = callback.data.split(":", 1)[1]
+    await _save_button_text_and_ask_style(callback.message, state, text)
+    await callback.answer()
+
+
+@router.message(
+    CreateGiveaway.waiting_button_text,
+    F.text.len() > 0,
+    not_main_menu,
+)
+async def custom_btn(message: Message, state: FSMContext) -> None:
+    text = message.text.strip()
+    if len(text) > 64:
+        await message.answer("Текст кнопки має містити не більше 64 символів.")
+        return
+    await _save_button_text_and_ask_style(message, state, text)
+
+
+@router.callback_query(
+    CreateGiveaway.waiting_button_style, F.data.startswith("btnstyle:")
+)
+async def choose_button_style(callback: CallbackQuery, state: FSMContext) -> None:
+    style = callback.data.split(":", 1)[1]
+    if style not in {"default", "primary", "success", "danger"}:
+        await callback.answer("Невідомий стиль", show_alert=True)
+        return
+    data = await state.get_data()
+    await set_button_design(data["gid"], style, None)
+    await state.update_data(button_style=style)
+    await callback.message.answer(
+        ask_button_icon(), reply_markup=button_icon_controls()
+    )
+    await state.set_state(CreateGiveaway.waiting_button_icon)
+    await callback.answer()
+
+
+@router.callback_query(CreateGiveaway.waiting_button_icon, F.data == "btnicon:skip")
+async def skip_button_icon(callback: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    await set_button_design(data["gid"], data.get("button_style", "success"), None)
+    await _show_requirements(callback.message, state)
+    await callback.answer()
+
+
+@router.message(CreateGiveaway.waiting_button_icon, F.text, not_main_menu)
+async def capture_button_icon(message: Message, state: FSMContext, bot: Bot) -> None:
+    icon_id = first_custom_emoji_id(message.entities)
+    if not icon_id:
+        await message.answer(
+            "Не бачу Premium-емодзі. Надішліть одне анімоване емодзі або натисніть «Без іконки»."
+        )
+        return
+    try:
+        stickers = await bot.get_custom_emoji_stickers([icon_id])
+    except Exception:
+        stickers = [True]
+    if not stickers:
+        await message.answer("Telegram не підтвердив це емодзі. Спробуйте інше.")
+        return
+    data = await state.get_data()
+    await set_button_design(data["gid"], data.get("button_style", "success"), icon_id)
+    await message.answer("✨ Анімовану іконку збережено")
+    await _show_requirements(message, state)
+
 
 @router.callback_query(CreateGiveaway.waiting_requirements, F.data == "req:add")
-async def req_add_prompt(cq: CallbackQuery):
-    await cq.message.answer("Надішліть @юзернейм каналу або перешліть повідомлення з каналу")
-    await cq.answer()
+async def req_add_prompt(callback: CallbackQuery) -> None:
+    await callback.message.answer(
+        "Надішліть @username каналу або перешліть повідомлення з каналу."
+    )
+    await callback.answer()
 
-@router.message(CreateGiveaway.waiting_requirements, F.forward_from_chat | F.text)
-async def req_add_handle(m: Message, state: FSMContext, bot: Bot):
+
+@router.message(
+    CreateGiveaway.waiting_requirements,
+    has_channel_reference,
+    not_main_menu,
+)
+async def req_add_handle(message: Message, state: FSMContext, bot: Bot) -> None:
     data = await state.get_data()
-    gid = data.get("gid")
-    raw = str(m.forward_from_chat.id) if m.forward_from_chat else normalize_channel(m.text)
+    raw = forwarded_chat_id(message) or normalize_channel(message.text)
     try:
         info = await bot.get_chat(raw)
     except Exception:
-        await m.answer(req_invalid())
+        await message.answer(req_invalid())
         return
     numeric_id = str(info.id)
-    ok = await bot_is_admin(bot, numeric_id)
-    if not ok:
-        await m.answer(req_invalid())
+    if not await bot_is_admin(bot, numeric_id):
+        await message.answer(req_invalid())
         return
-    added = await add_requirement(gid, numeric_id)
-    if added:
-        await m.answer(req_added())
-    reqs = await list_requirements(gid)
-    if reqs:
-        await m.answer(ready_to_post())
+    added = await add_requirement(data["gid"], numeric_id)
+    await message.answer(req_added() if added else "Цей канал уже є в умовах.")
+    if await list_requirements(data["gid"]):
+        await message.answer(ready_to_post(), reply_markup=req_controls())
+
 
 @router.callback_query(CreateGiveaway.waiting_requirements, F.data == "req:skip")
-async def req_skip(cq: CallbackQuery, state: FSMContext):
+async def req_skip(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
-    gid = data.get("gid")
-    await allow_no_subs(gid)
-    await cq.message.answer(no_requirements())
-    await cq.answer()
+    await clear_requirements(data["gid"])
+    await allow_no_subs(data["gid"])
+    await callback.message.answer(no_requirements(), reply_markup=req_controls())
+    await callback.answer()
+
 
 @router.callback_query(CreateGiveaway.waiting_requirements, F.data == "req:next")
-async def req_next(cq: CallbackQuery, state: FSMContext):
-    await cq.message.answer(ask_end_datetime())
+async def req_next(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.message.answer(ask_end_datetime(settings.timezone_name))
     await state.set_state(CreateGiveaway.waiting_end_datetime)
-    await cq.answer()
+    await callback.answer()
 
-@router.message(CreateGiveaway.waiting_end_datetime, F.text.len() > 0)
-async def set_end_datetime(m: Message, state: FSMContext):
-    txt = m.text.strip()
+
+@router.message(
+    CreateGiveaway.waiting_end_datetime,
+    F.text.len() > 0,
+    not_main_menu,
+)
+async def set_end_datetime(message: Message, state: FSMContext) -> None:
     try:
-        naive = datetime.datetime.strptime(txt, "%Y-%m-%d %H:%M")
-        tz = ZoneInfo(settings.timezone_name)
-        aware = naive.replace(tzinfo=tz)
-        ends_at = int(aware.astimezone(ZoneInfo("UTC")).timestamp())
+        naive = datetime.datetime.strptime(message.text.strip(), "%Y-%m-%d %H:%M")
+        aware = naive.replace(tzinfo=ZoneInfo(settings.timezone_name))
+        ends_at = int(aware.timestamp())
+        if ends_at <= int(time.time()) + 60:
+            raise ValueError("deadline is in the past")
     except Exception:
-        await m.answer("Невірний формат. Приклад: 2025-11-03 18:30")
+        await message.answer(
+            f"Невірна або вже минула дата. Приклад: 2026-09-03 18:30 ({settings.timezone_name})."
+        )
         return
     data = await state.get_data()
-    gid = data.get("gid")
-    await set_ends_at(gid, ends_at)
-    await m.answer(ask_winners_count())
+    await set_ends_at(data["gid"], ends_at)
+    await message.answer(ask_winners_count())
     await state.set_state(CreateGiveaway.waiting_winners_count)
 
-@router.message(CreateGiveaway.waiting_winners_count, F.text.len() > 0)
-async def set_winners(m: Message, state: FSMContext):
+
+@router.message(
+    CreateGiveaway.waiting_winners_count,
+    F.text.len() > 0,
+    not_main_menu,
+)
+async def set_winners(message: Message, state: FSMContext) -> None:
     try:
-        n = max(1, min(100, int(m.text.strip())))
+        count = int(message.text.strip())
+        if not 1 <= count <= 100:
+            raise ValueError
     except Exception:
-        await m.answer("Введіть ціле число від 1 до 100")
+        await message.answer("Введіть ціле число від 1 до 100.")
         return
     data = await state.get_data()
-    gid = data.get("gid")
-    await set_winners_count(gid, n)
-    await m.answer(ask_post_channel())
+    await set_winners_count(data["gid"], count)
+    await message.answer(ask_post_channel())
     await state.set_state(CreateGiveaway.waiting_post_channel)
 
-@router.message(CreateGiveaway.waiting_post_channel, F.forward_from_chat | F.text)
-async def set_post_channel(m: Message, state: FSMContext, bot: Bot):
+
+@router.message(
+    CreateGiveaway.waiting_post_channel,
+    has_channel_reference,
+    not_main_menu,
+)
+async def set_post_channel(message: Message, state: FSMContext, bot: Bot) -> None:
     data = await state.get_data()
-    gid = data.get("gid")
-    raw = str(m.forward_from_chat.id) if m.forward_from_chat else normalize_channel(m.text)
+    raw = forwarded_chat_id(message) or normalize_channel(message.text)
     try:
         info = await bot.get_chat(raw)
     except Exception:
-        await m.answer("Не вдалося отримати доступ до каналу. Переконайтеся, що бот — адміністратор.")
+        await message.answer(
+            "Не вдалося знайти канал. Перевірте @username або переслане повідомлення."
+        )
         return
-    await set_post_target(gid, str(info.id), None)
+    chat_id = str(info.id)
+    if not await bot_is_admin(bot, chat_id, require_posting=True):
+        await message.answer(
+            "Додайте бота до цього каналу як адміністратора й спробуйте ще раз."
+        )
+        return
+    row = await get_owned_giveaway(data["gid"], message.from_user.id)
+    if not row:
+        await state.clear()
+        await message.answer(
+            "Чернетку вже видалено або вона недоступна. Почніть новий розіграш."
+        )
+        return
+    requirements = await list_requirements(data["gid"])
+    if chat_id not in requirements:
+        requirements.append(chat_id)
+    channels = await channel_preview(bot, requirements)
+    final_text = composed_caption(
+        row["caption"] or "",
+        channels,
+        row["button_text"] or "🎁 Беру участь!",
+        ends_at=row["ends_at"],
+        winners_count=row["winners_count"],
+        timezone_name=settings.timezone_name,
+    )
+    try:
+        validate_payload_length(final_text, row["media_type"], row["media_file_id"])
+    except ValueError as exc:
+        await message.answer(
+            f"{exc}. У фінальному пості {len(final_text)} символів. "
+            "Надішліть зараз коротший текст/медіапост — умови розіграшу збережуться."
+        )
+        await state.set_state(CreateGiveaway.waiting_post)
+        return
+    await set_post_target(data["gid"], chat_id)
     await state.clear()
-    await m.answer("Чернетку створено та ціль публікації збережено. Відкрийте «📦 Мої розіграші», щоб отримати пост і опублікувати.")
+    await message.answer(
+        "Чернетка готова ✨ Спочатку перегляньте її, потім натисніть «Опублікувати».",
+        reply_markup=giveaway_actions(data["gid"], published=False, closed=False),
+    )
 
-def setup(dp):
+
+def setup(dp) -> None:
     dp.include_router(router)

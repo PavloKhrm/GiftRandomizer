@@ -1,14 +1,7 @@
-[project]
-name = "randomizer-bot"
-
 [build]
-builder = "NIXPACKS"
-
-[variables]
-PYTHONUNBUFFERED = "1"
+builder = "RAILPACK"
 
 [deploy]
+startCommand = "python3 -u main.py"
 restartPolicyType = "ON_FAILURE"
-
-[services.bot]
-startCommand = "python3 main.py"
+restartPolicyMaxRetries = 10

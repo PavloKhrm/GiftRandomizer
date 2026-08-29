@@ -1,87 +1,111 @@
 import asyncio
+import logging
 import time
-import random
+
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.fsm.storage.memory import SimpleEventIsolation
+
 from config import settings
-from db import init_db, fetch
+from db import close_db, init_db
 from handlers import register_handlers
-from services.giveaways import list_requirements, list_entries, get_giveaway, mark_closed
-from services.subscription import is_member_everywhere
-from utils.texts import finished_announce
+from services.draws import run_claimed_draw
+from services.giveaways import claim_due_giveaways, mark_draw_failed
 
-async def winner_label(bot, user_id: int):
-    try:
-        chat = await bot.get_chat(user_id)
-        if getattr(chat, "username", None):
-            return f"@{chat.username}"
-    except Exception:
-        pass
-    return f"<a href='tg://user?id={user_id}'>профіль</a>"
+logger = logging.getLogger(__name__)
 
-async def auto_draw_loop(bot: Bot):
-    while True:
-        now = int(time.time())
+
+async def auto_draw_loop(bot: Bot, stop_event: asyncio.Event) -> None:
+    while not stop_event.is_set():
         try:
-            rows = await fetch(
-                "SELECT id FROM giveaways WHERE ends_at IS NOT NULL AND ends_at <= $1 AND closed=0",
-                now
-            )
-            ids = [r["id"] for r in rows]
-            for gid in ids:
-                row = await get_giveaway(gid)
-                if not row:
-                    continue
-                owner_id = row["owner_id"]
-                title = row["title"]
-                allow_no_sub = row["allow_no_sub"]
-                post_chat_id = row["post_chat_id"]
-                winners_count = row["winners_count"]
-
-                reqs = await list_requirements(gid)
-                users = await list_entries(gid)
-
-                if allow_no_sub or not reqs:
-                    pool = users
-                else:
-                    pool = []
-                    for u in users:
-                        if await is_member_everywhere(bot, u, reqs):
-                            pool.append(u)
-
-                if not pool:
-                    await mark_closed(gid)
-                    try:
-                        await bot.send_message(owner_id, f"⚠️ У розіграші «{title or 'Розіграш'}» немає валідних учасників.")
-                    except Exception:
-                        pass
-                    continue
-
-                k = min(max(1, winners_count or 1), min(100, len(pool)))
-                chosen = random.sample(pool, k)
-                names = [await winner_label(bot, uid) for uid in chosen]
-                text = finished_announce(title, names)
-                target_chat = int(post_chat_id) if post_chat_id else owner_id
-
-                await mark_closed(gid)
+            for _ in range(settings.auto_draw_batch_size):
+                claims = await claim_due_giveaways(int(time.time()), limit=1)
+                if not claims:
+                    break
+                claim = claims[0]
+                gid = claim.giveaway_id
                 try:
-                    await bot.send_message(target_chat, text)
-                except Exception:
+                    await run_claimed_draw(bot, gid, claim.token)
+                except asyncio.CancelledError:
                     try:
-                        await bot.send_message(owner_id, text)
+                        await asyncio.shield(
+                            mark_draw_failed(
+                                gid,
+                                claim.token,
+                                "Worker shutdown",
+                                int(time.time()),
+                                30,
+                                terminal=True,
+                                delivery_uncertain=True,
+                            )
+                        )
                     except Exception:
-                        pass
-        except Exception as e:
-            print("[auto_draw_loop]", e)
-        await asyncio.sleep(30)
+                        logger.exception(
+                            "Could not release giveaway %s during shutdown", gid
+                        )
+                    finally:
+                        raise
+                except Exception as exc:
+                    logger.exception("Unhandled draw failure for giveaway %s", gid)
+                    try:
+                        await mark_draw_failed(
+                            gid,
+                            claim.token,
+                            f"{type(exc).__name__}: {exc}",
+                            int(time.time()),
+                            30,
+                        )
+                    except Exception:
+                        logger.exception("Could not release giveaway %s", gid)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Automatic giveaway cycle failed")
 
-async def main():
+        try:
+            await asyncio.wait_for(
+                stop_event.wait(),
+                timeout=settings.auto_draw_interval_seconds,
+            )
+        except TimeoutError:
+            pass
+
+
+async def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    settings.validate()
     await init_db()
-    bot = Bot(token=settings.bot_token, default=DefaultBotProperties(parse_mode="HTML"))
-    dp = Dispatcher()
-    register_handlers(dp)
-    asyncio.create_task(auto_draw_loop(bot))
-    await dp.start_polling(bot)
+
+    bot = Bot(
+        token=settings.bot_token,
+        default=DefaultBotProperties(parse_mode="HTML"),
+    )
+    dispatcher = Dispatcher(events_isolation=SimpleEventIsolation())
+    register_handlers(dispatcher)
+
+    stop_event = asyncio.Event()
+    draw_task = asyncio.create_task(
+        auto_draw_loop(bot, stop_event), name="auto-draw-loop"
+    )
+    try:
+        await dispatcher.start_polling(
+            bot,
+            close_bot_session=False,
+            allowed_updates=dispatcher.resolve_used_update_types(),
+        )
+    finally:
+        stop_event.set()
+        try:
+            await asyncio.wait_for(draw_task, timeout=10)
+        except TimeoutError:
+            draw_task.cancel()
+            await asyncio.gather(draw_task, return_exceptions=True)
+        await bot.session.close()
+        await close_db()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
