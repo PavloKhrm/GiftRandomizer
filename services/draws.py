@@ -32,7 +32,11 @@ from services.giveaways import (
     save_winners_if_absent,
 )
 from services.subscription import is_member_everywhere
-from utils.texts import finished_announce_chunks, no_participants_announce
+from utils.texts import (
+    finished_announce_chunks,
+    no_participants_announce,
+    normalize_result_announce_header,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +206,9 @@ async def run_claimed_draw(
             claim_token,
             result_chunks,
         )
+        result_chunks = [
+            normalize_result_announce_header(chunk) for chunk in result_chunks
+        ]
 
         target_chat_id = int(row["post_chat_id"])
         saved_messages = await list_result_messages(gid)

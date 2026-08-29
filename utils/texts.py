@@ -1,4 +1,6 @@
-import html
+RESULTS_HEADER = "🏆 <b>Результати розіграшу</b>"
+_LEGACY_RESULTS_PREFIX = "🎉 <b>Результати «"
+_LEGACY_EMPTY_PREFIX = "🏁 <b>Розіграш «"
 
 
 def create_intro() -> str:
@@ -74,23 +76,20 @@ def finished_announce(title: str | None, winner_labels: list[str]) -> str:
 
 
 def finished_announce_chunks(
-    title: str | None,
+    _title: str | None,
     winner_labels: list[str],
     max_length: int = 3800,
 ) -> list[str]:
-    safe_title = html.escape(title or "Розіграш")
-    first_header = f"🎉 <b>Результати «{safe_title}»</b>"
-    next_header = f"🎉 <b>Результати «{safe_title}» — продовження</b>"
     lines = [f"{index} місце — {label}" for index, label in enumerate(winner_labels, 1)]
     chunks: list[str] = []
-    current = first_header
+    current = RESULTS_HEADER
     has_results = False
     for line in lines:
         separator = "\n" if has_results else "\n\n"
         candidate = f"{current}{separator}{line}"
         if len(candidate) > max_length and has_results:
             chunks.append(current)
-            current = f"{next_header}\n\n{line}"
+            current = f"{RESULTS_HEADER}\n\n{line}"
             has_results = True
         else:
             current = candidate
@@ -99,9 +98,26 @@ def finished_announce_chunks(
     return chunks
 
 
-def no_participants_announce(title: str | None) -> str:
-    safe_title = html.escape(title or "Розіграш")
-    return f"🏁 <b>Розіграш «{safe_title}» завершено</b>\n\nНа жаль, валідних учасників немає."
+def no_participants_announce(_title: str | None) -> str:
+    return (
+        f"{RESULTS_HEADER}\n\n"
+        "На жаль, валідних учасників немає."
+    )
+
+
+def normalize_result_announce_header(message_html: str) -> str:
+    """Remove an author-derived title from result chunks saved by older releases."""
+    first_line, separator, remainder = message_html.partition("\n")
+    is_legacy_winner_header = (
+        first_line.startswith(_LEGACY_RESULTS_PREFIX) and first_line.endswith("</b>")
+    )
+    is_legacy_empty_header = (
+        first_line.startswith(_LEGACY_EMPTY_PREFIX)
+        and first_line.endswith("» завершено</b>")
+    )
+    if not (is_legacy_winner_header or is_legacy_empty_header):
+        return message_html
+    return f"{RESULTS_HEADER}{separator}{remainder}"
 
 
 def make_title(text: str) -> str:

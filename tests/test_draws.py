@@ -6,7 +6,12 @@ from aiogram.exceptions import TelegramNetworkError
 from aiogram.methods import SendMessage
 
 from services import draws
-from utils.texts import finished_announce_chunks
+from utils.texts import (
+    RESULTS_HEADER,
+    finished_announce_chunks,
+    no_participants_announce,
+    normalize_result_announce_header,
+)
 
 CLAIM_TOKEN = "claim-token"
 
@@ -194,6 +199,17 @@ async def test_run_claimed_draw_reuses_saved_winners_without_resampling(
     monkeypatch.setattr(draws, "_eligible_users", fail_if_called)
     monkeypatch.setattr(draws, "save_winners_if_absent", fail_if_called)
     monkeypatch.setattr(draws, "winner_label", winner_label)
+    monkeypatch.setattr(
+        draws,
+        "save_result_chunks_if_absent",
+        lambda gid, token, chunks: _async_value(
+            [
+                "🎉 <b>Результати «Суперприз»</b>\n\n"
+                "1 місце — winner-707\n"
+                "2 місце — winner-808"
+            ]
+        ),
+    )
     monkeypatch.setattr(draws, "list_result_messages", lambda gid: _async_value({}))
     monkeypatch.setattr(draws, "save_result_message", lambda *args: _async_value(True))
     monkeypatch.setattr(draws, "mark_draw_succeeded", mark_succeeded)
@@ -204,6 +220,8 @@ async def test_run_claimed_draw_reuses_saved_winners_without_resampling(
 
     assert outcome == draws.DrawOutcome("finished", (707, 808))
     assert succeeded == [(11, "-100500", 901, 1_700_000_100)]
+    assert bot.sent[0][1].startswith(f"{RESULTS_HEADER}\n\n")
+    assert "Суперприз" not in bot.sent[0][1]
     assert "winner-707" in bot.sent[0][1]
     assert "winner-808" in bot.sent[0][1]
 
@@ -514,5 +532,44 @@ def test_long_winner_list_is_split_without_losing_places() -> None:
     assert len(chunks) > 1
     assert all(len(chunk) <= 500 for chunk in chunks)
     combined = "\n".join(chunks)
+    assert all(chunk.startswith(f"{RESULTS_HEADER}\n\n") for chunk in chunks)
+    assert "Великий фінал" not in combined
+    assert "продовження" not in combined
     for place, label in enumerate(labels, 1):
         assert combined.count(f"{place} місце — {label}") == 1
+
+
+def test_results_never_repeat_the_author_post_title() -> None:
+    title = "Дівчатка, запускаємо розіграш тут, у Telegram."
+
+    winner_message = finished_announce_chunks(title, ["@m1stakeless"])[0]
+    empty_message = no_participants_announce(title)
+
+    assert winner_message == (
+        f"{RESULTS_HEADER}\n\n"
+        "1 місце — @m1stakeless"
+    )
+    assert empty_message == (
+        f"{RESULTS_HEADER}\n\n"
+        "На жаль, валідних учасників немає."
+    )
+    assert title not in winner_message
+    assert title not in empty_message
+
+
+def test_legacy_saved_result_headers_are_normalized_before_retry() -> None:
+    winner_message = (
+        "🎉 <b>Результати «Стара назва» — продовження</b>\n\n"
+        "2 місце — @winner"
+    )
+    empty_message = (
+        "🏁 <b>Розіграш «Стара назва» завершено</b>\n\n"
+        "На жаль, валідних учасників немає."
+    )
+
+    assert normalize_result_announce_header(winner_message) == (
+        f"{RESULTS_HEADER}\n\n2 місце — @winner"
+    )
+    assert normalize_result_announce_header(empty_message) == (
+        f"{RESULTS_HEADER}\n\nНа жаль, валідних учасників немає."
+    )
