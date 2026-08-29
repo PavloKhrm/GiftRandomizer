@@ -8,9 +8,7 @@ from aiogram.types import CallbackQuery, Message
 
 from config import settings
 from keyboards.inline import (
-    button_icon_controls,
     button_style_choices,
-    button_text_presets,
     giveaway_actions,
     req_controls,
 )
@@ -30,19 +28,17 @@ from services.giveaways import (
     set_winners_count,
 )
 from services.posting import validate_payload_length
-from services.subscription import bot_is_admin, channel_preview
+from services.subscription import bot_is_admin
 from states import CreateGiveaway
-from utils.entities import first_custom_emoji_id, serialize_entities
+from utils.entities import serialize_entities, serialize_link_preview_options
 from utils.formatting import forwarded_chat_id, has_channel_reference, normalize_channel
 from utils.texts import (
-    ask_button_icon,
     ask_button_style,
     ask_button_text,
     ask_end_datetime,
     ask_post_channel,
     ask_requirements_intro,
     ask_winners_count,
-    composed_caption,
     make_title,
     no_requirements,
     ready_to_post,
@@ -97,9 +93,12 @@ async def capture_post(message: Message, state: FSMContext) -> None:
         serialize_entities(source_entities),
         media_type,
         media_file_id,
+        bool(message.show_caption_above_media),
+        bool(message.has_media_spoiler),
+        serialize_link_preview_options(message.link_preview_options),
     )
     await message.answer(text_saved())
-    await message.answer(ask_button_text(), reply_markup=button_text_presets())
+    await message.answer(ask_button_text())
     await state.set_state(CreateGiveaway.waiting_button_text)
 
 
@@ -112,15 +111,6 @@ async def _save_button_text_and_ask_style(
     await state.set_state(CreateGiveaway.waiting_button_style)
 
 
-@router.callback_query(
-    CreateGiveaway.waiting_button_text, F.data.startswith("btnpreset:")
-)
-async def preset_btn(callback: CallbackQuery, state: FSMContext) -> None:
-    text = callback.data.split(":", 1)[1]
-    await _save_button_text_and_ask_style(callback.message, state, text)
-    await callback.answer()
-
-
 @router.message(
     CreateGiveaway.waiting_button_text,
     F.text.len() > 0,
@@ -128,8 +118,8 @@ async def preset_btn(callback: CallbackQuery, state: FSMContext) -> None:
 )
 async def custom_btn(message: Message, state: FSMContext) -> None:
     text = message.text.strip()
-    if len(text) > 64:
-        await message.answer("Текст кнопки має містити не більше 64 символів.")
+    if not text:
+        await message.answer("Текст кнопки не може бути порожнім.")
         return
     await _save_button_text_and_ask_style(message, state, text)
 
@@ -143,42 +133,9 @@ async def choose_button_style(callback: CallbackQuery, state: FSMContext) -> Non
         await callback.answer("Невідомий стиль", show_alert=True)
         return
     data = await state.get_data()
-    await set_button_design(data["gid"], style, None)
-    await state.update_data(button_style=style)
-    await callback.message.answer(
-        ask_button_icon(), reply_markup=button_icon_controls()
-    )
-    await state.set_state(CreateGiveaway.waiting_button_icon)
-    await callback.answer()
-
-
-@router.callback_query(CreateGiveaway.waiting_button_icon, F.data == "btnicon:skip")
-async def skip_button_icon(callback: CallbackQuery, state: FSMContext) -> None:
-    data = await state.get_data()
-    await set_button_design(data["gid"], data.get("button_style", "success"), None)
+    await set_button_design(data["gid"], style)
     await _show_requirements(callback.message, state)
     await callback.answer()
-
-
-@router.message(CreateGiveaway.waiting_button_icon, F.text, not_main_menu)
-async def capture_button_icon(message: Message, state: FSMContext, bot: Bot) -> None:
-    icon_id = first_custom_emoji_id(message.entities)
-    if not icon_id:
-        await message.answer(
-            "Не бачу Premium-емодзі. Надішліть одне анімоване емодзі або натисніть «Без іконки»."
-        )
-        return
-    try:
-        stickers = await bot.get_custom_emoji_stickers([icon_id])
-    except Exception:
-        stickers = [True]
-    if not stickers:
-        await message.answer("Telegram не підтвердив це емодзі. Спробуйте інше.")
-        return
-    data = await state.get_data()
-    await set_button_design(data["gid"], data.get("button_style", "success"), icon_id)
-    await message.answer("✨ Анімовану іконку збережено")
-    await _show_requirements(message, state)
 
 
 @router.callback_query(CreateGiveaway.waiting_requirements, F.data == "req:add")
@@ -298,24 +255,13 @@ async def set_post_channel(message: Message, state: FSMContext, bot: Bot) -> Non
             "Чернетку вже видалено або вона недоступна. Почніть новий розіграш."
         )
         return
-    requirements = await list_requirements(data["gid"])
-    if chat_id not in requirements:
-        requirements.append(chat_id)
-    channels = await channel_preview(bot, requirements)
-    final_text = composed_caption(
-        row["caption"] or "",
-        channels,
-        row["button_text"] or "🎁 Беру участь!",
-        ends_at=row["ends_at"],
-        winners_count=row["winners_count"],
-        timezone_name=settings.timezone_name,
-    )
+    final_text = row["caption"] or ""
     try:
         validate_payload_length(final_text, row["media_type"], row["media_file_id"])
     except ValueError as exc:
         await message.answer(
             f"{exc}. У фінальному пості {len(final_text)} символів. "
-            "Надішліть зараз коротший текст/медіапост — умови розіграшу збережуться."
+            "Надішліть зараз коротший авторський текст/медіапост — умови розіграшу збережуться."
         )
         await state.set_state(CreateGiveaway.waiting_post)
         return

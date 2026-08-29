@@ -6,11 +6,11 @@ from aiogram.methods import SendMessage
 from aiogram.types import MessageEntity
 
 from services.posting import build_and_send, validate_payload_length
+from utils.entities import serialize_entities
 
 
-class FallbackBot:
-    def __init__(self, failures: int) -> None:
-        self.failures = failures
+class RecordingBot:
+    def __init__(self) -> None:
         self.calls: list[tuple[int | str, str, dict]] = []
         self.message = SimpleNamespace(
             chat=SimpleNamespace(id=-100123),
@@ -19,126 +19,66 @@ class FallbackBot:
 
     async def send_message(self, chat_id: int | str, text: str, **kwargs):
         self.calls.append((chat_id, text, kwargs))
-        if len(self.calls) <= self.failures:
-            raise TelegramBadRequest(
-                method=SendMessage(chat_id=chat_id, text=text),
-                message=f"unsupported design {len(self.calls)}",
-            )
         return self.message
 
 
 @pytest.mark.asyncio
-async def test_posting_falls_back_icon_then_custom_emoji_then_style() -> None:
-    bot = FallbackBot(failures=7)
-    entities = [
-        MessageEntity(type="bold", offset=0, length=4),
-        MessageEntity(
-            type="custom_emoji",
-            offset=5,
-            length=2,
-            custom_emoji_id="caption-emoji",
-        ),
-    ]
-
-    result = await build_and_send(
-        bot,
-        -100123,
-        17,
-        "Gift post",
-        entities,
-        None,
-        None,
-        "Join",
-        "danger",
-        "button-icon",
-    )
-
-    assert result.message is bot.message
-    assert result.button_icon_fallback is True
-    assert result.custom_emoji_fallback is True
-    assert result.button_style_fallback is True
-    assert len(bot.calls) == 8
-
-    buttons = [call[2]["reply_markup"].inline_keyboard[0][0] for call in bot.calls]
-    assert [(button.style, button.icon_custom_emoji_id) for button in buttons] == [
-        ("danger", "button-icon"),
-        ("danger", None),
-        ("danger", "button-icon"),
-        (None, "button-icon"),
-        ("danger", None),
-        (None, None),
-        (None, "button-icon"),
-        (None, None),
-    ]
-    assert [[entity.type for entity in call[2]["entities"]] for call in bot.calls] == [
-        ["bold", "custom_emoji"],
-        ["bold", "custom_emoji"],
-        ["bold"],
-        ["bold", "custom_emoji"],
-        ["bold"],
-        ["bold", "custom_emoji"],
-        ["bold"],
-        ["bold"],
-    ]
-
-
-@pytest.mark.asyncio
-async def test_style_fallback_keeps_supported_custom_emoji() -> None:
-    class StyleRejectingBot(FallbackBot):
+async def test_rejected_style_is_not_silently_removed() -> None:
+    class StyleRejectingBot(RecordingBot):
         async def send_message(self, chat_id: int | str, text: str, **kwargs):
             self.calls.append((chat_id, text, kwargs))
             button = kwargs["reply_markup"].inline_keyboard[0][0]
-            if button.style:
-                raise TelegramBadRequest(
-                    method=SendMessage(chat_id=chat_id, text=text),
-                    message="style unsupported",
-                )
-            return self.message
+            raise TelegramBadRequest(
+                method=SendMessage(chat_id=chat_id, text=text),
+                message=f"style unsupported: {button.style}",
+            )
 
-    bot = StyleRejectingBot(failures=0)
+    text = "🎁 Gift post\nQuoted text\nExpandable text"
     entities = [
         MessageEntity(
             type="custom_emoji",
             offset=0,
             length=2,
             custom_emoji_id="caption-emoji",
-        )
+        ),
+        MessageEntity(type="blockquote", offset=13, length=11),
+        MessageEntity(type="expandable_blockquote", offset=25, length=15),
     ]
+    expected_entities = serialize_entities(entities)
+    bot = StyleRejectingBot()
 
-    result = await build_and_send(
-        bot,
-        -100123,
-        17,
-        "🎁 Gift post",
-        entities,
-        None,
-        None,
-        "Join",
-        "danger",
-        None,
-    )
+    with pytest.raises(TelegramBadRequest, match="style unsupported"):
+        await build_and_send(
+            bot,
+            -100123,
+            17,
+            text,
+            entities,
+            None,
+            None,
+            "Будь-яка кнопка",
+            "danger",
+        )
 
-    assert result.button_style_fallback is True
-    assert result.custom_emoji_fallback is False
-    assert [entity.type for entity in bot.calls[-1][2]["entities"]] == ["custom_emoji"]
+    assert len(bot.calls) == 1
+    _, sent_text, kwargs = bot.calls[0]
+    assert sent_text == text
+    assert serialize_entities(kwargs["entities"]) == expected_entities
+    button = kwargs["reply_markup"].inline_keyboard[0][0]
+    assert button.style == "danger"
+    assert button.icon_custom_emoji_id is None
 
 
 @pytest.mark.asyncio
-async def test_invalid_caption_emoji_fallback_keeps_valid_button_icon() -> None:
-    class CaptionEmojiRejectingBot(FallbackBot):
+async def test_rejected_premium_emoji_is_never_silently_removed() -> None:
+    class EntityRejectingBot(RecordingBot):
         async def send_message(self, chat_id: int | str, text: str, **kwargs):
             self.calls.append((chat_id, text, kwargs))
-            if any(
-                entity.type == "custom_emoji"
-                for entity in (kwargs.get("entities") or [])
-            ):
-                raise TelegramBadRequest(
-                    method=SendMessage(chat_id=chat_id, text=text),
-                    message="caption custom emoji is not allowed",
-                )
-            return self.message
+            raise TelegramBadRequest(
+                method=SendMessage(chat_id=chat_id, text=text),
+                message="custom emoji rejected",
+            )
 
-    bot = CaptionEmojiRejectingBot(failures=0)
     entities = [
         MessageEntity(
             type="custom_emoji",
@@ -147,24 +87,46 @@ async def test_invalid_caption_emoji_fallback_keeps_valid_button_icon() -> None:
             custom_emoji_id="caption-emoji",
         )
     ]
+    bot = EntityRejectingBot()
 
-    result = await build_and_send(
+    with pytest.raises(TelegramBadRequest, match="custom emoji rejected"):
+        await build_and_send(
+            bot,
+            -100123,
+            17,
+            "🎁 Gift post",
+            entities,
+            None,
+            None,
+            "Join",
+            "primary",
+        )
+
+    assert len(bot.calls) == 1
+    assert all(
+        [entity.type for entity in call[2]["entities"]] == ["custom_emoji"]
+        for call in bot.calls
+    )
+
+
+@pytest.mark.asyncio
+async def test_button_text_is_author_supplied_without_a_bot_defined_limit() -> None:
+    bot = RecordingBot()
+    label = "🔥" * 80
+
+    await build_and_send(
         bot,
         -100123,
         17,
-        "🎁 Gift post",
-        entities,
+        "Author text",
+        [],
         None,
         None,
-        "Join",
+        label,
         "success",
-        "valid-button-icon",
     )
 
-    button = bot.calls[-1][2]["reply_markup"].inline_keyboard[0][0]
-    assert result.custom_emoji_fallback is True
-    assert result.button_icon_fallback is False
-    assert button.icon_custom_emoji_id == "valid-button-icon"
+    assert bot.calls[0][2]["reply_markup"].inline_keyboard[0][0].text == label
 
 
 def test_payload_limits_count_unicode_characters_not_utf16_units() -> None:

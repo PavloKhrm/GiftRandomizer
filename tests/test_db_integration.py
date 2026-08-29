@@ -31,6 +31,7 @@ from services.giveaways import (
     save_result_message,
     save_winners_if_absent,
     set_ends_at,
+    set_post,
     set_post_target,
 )
 
@@ -46,6 +47,29 @@ async def test_postgres_lifecycle_and_atomic_claims(monkeypatch) -> None:
     now = int(time.time())
     try:
         gid = await create_giveaway(7001)
+        await set_post(
+            gid,
+            "Авторський пост",
+            "🔥 Текст із цитатою",
+            [
+                {
+                    "type": "custom_emoji",
+                    "offset": 0,
+                    "length": 2,
+                    "custom_emoji_id": "premium-emoji",
+                }
+            ],
+            "photo",
+            "telegram-file-id",
+            True,
+            True,
+            {"url": "https://example.com", "show_above_text": True},
+        )
+        stored_post = await get_giveaway(gid)
+        assert stored_post["caption"] == "🔥 Текст із цитатою"
+        assert stored_post["show_caption_above_media"] is True
+        assert stored_post["has_media_spoiler"] is True
+        assert stored_post["link_preview_options"]
         await set_post_target(gid, "-1009001")
         await set_ends_at(gid, now + 100)
 

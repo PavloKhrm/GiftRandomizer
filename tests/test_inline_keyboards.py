@@ -1,20 +1,14 @@
 from keyboards.inline import giveaway_actions, join_button, preview_button
 
 
-def test_join_button_serializes_style_and_custom_emoji_icon() -> None:
-    markup = join_button(
-        42,
-        "🔥 Хочу приз",
-        style="danger",
-        icon_custom_emoji_id="button-icon-456",
-    )
+def test_join_button_keeps_arbitrary_text_and_has_no_custom_emoji_icon() -> None:
+    markup = join_button(42, "🔥 Будь-який авторський текст", style="danger")
 
     assert markup.model_dump(mode="json", exclude_none=True) == {
         "inline_keyboard": [
             [
                 {
-                    "text": "🔥 Хочу приз",
-                    "icon_custom_emoji_id": "button-icon-456",
+                    "text": "🔥 Будь-який авторський текст",
                     "style": "danger",
                     "callback_data": "join:42",
                 }
@@ -24,15 +18,10 @@ def test_join_button_serializes_style_and_custom_emoji_icon() -> None:
 
 
 def test_preview_button_keeps_design_but_uses_non_joining_callback() -> None:
-    button = preview_button(
-        7,
-        "✨ Спробувати",
-        style="primary",
-        icon_custom_emoji_id="preview-icon",
-    ).inline_keyboard[0][0]
+    button = preview_button(7, "✨ Спробувати", style="primary").inline_keyboard[0][0]
 
     assert button.style == "primary"
-    assert button.icon_custom_emoji_id == "preview-icon"
+    assert button.icon_custom_emoji_id is None
     assert button.callback_data == "preview:noop:7"
 
 

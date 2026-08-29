@@ -10,7 +10,8 @@ from db import execute, fetch, fetchrow, pool
 
 GIVEAWAY_COLUMNS = """
     id, owner_id, title, caption, caption_entities, media_type, media_file_id,
-    button_text, button_style, button_icon_custom_emoji_id, allow_no_sub,
+    show_caption_above_media, has_media_spoiler, link_preview_options,
+    button_text, button_style, allow_no_sub,
     ends_at, post_chat_id, post_message_id, published_at, publish_status,
     publish_claimed_at, publish_claim_token, closed, winners_count,
     draw_status, draw_claimed_at, draw_claim_token, draw_attempts, next_draw_attempt_at,
@@ -45,15 +46,24 @@ async def set_post(
     entities: list[dict],
     media_type: str | None,
     media_file_id: str | None,
+    show_caption_above_media: bool,
+    has_media_spoiler: bool,
+    link_preview_options: dict | None,
 ) -> None:
     await execute(
         "UPDATE giveaways SET title=$1, caption=$2, caption_entities=$3::jsonb, "
-        "media_type=$4, media_file_id=$5 WHERE id=$6",
+        "media_type=$4, media_file_id=$5, show_caption_above_media=$6, "
+        "has_media_spoiler=$7, link_preview_options=$8::jsonb WHERE id=$9",
         title,
         caption,
         json.dumps(entities, ensure_ascii=False),
         media_type,
         media_file_id,
+        show_caption_above_media,
+        has_media_spoiler,
+        json.dumps(link_preview_options, ensure_ascii=False)
+        if link_preview_options is not None
+        else None,
         gid,
     )
 
@@ -62,17 +72,10 @@ async def set_button_text(gid: int, text: str) -> None:
     await execute("UPDATE giveaways SET button_text=$1 WHERE id=$2", text, gid)
 
 
-async def set_button_design(
-    gid: int, style: str, icon_custom_emoji_id: str | None
-) -> None:
+async def set_button_design(gid: int, style: str) -> None:
     if style not in {"default", "primary", "success", "danger"}:
         raise ValueError("Unsupported button style")
-    await execute(
-        "UPDATE giveaways SET button_style=$1, button_icon_custom_emoji_id=$2 WHERE id=$3",
-        style,
-        icon_custom_emoji_id,
-        gid,
-    )
+    await execute("UPDATE giveaways SET button_style=$1 WHERE id=$2", style, gid)
 
 
 async def add_requirement(gid: int, chat_id: str) -> bool:

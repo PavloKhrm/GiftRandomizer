@@ -6,41 +6,11 @@ def _styled_button(
     text: str,
     callback_data: str,
     style: str | None = None,
-    icon_custom_emoji_id: str | None = None,
 ) -> InlineKeyboardButton:
     return InlineKeyboardButton(
         text=text,
         callback_data=callback_data,
         style=style,
-        icon_custom_emoji_id=icon_custom_emoji_id,
-    )
-
-
-def button_text_presets() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                _styled_button(
-                    text="🎁 Беру участь!",
-                    callback_data="btnpreset:🎁 Беру участь!",
-                    style="success",
-                )
-            ],
-            [
-                _styled_button(
-                    text="✨ Спробувати удачу",
-                    callback_data="btnpreset:✨ Спробувати удачу",
-                    style="primary",
-                )
-            ],
-            [
-                _styled_button(
-                    text="🔥 Хочу приз",
-                    callback_data="btnpreset:🔥 Хочу приз",
-                    style="danger",
-                )
-            ],
-        ]
     )
 
 
@@ -67,32 +37,18 @@ def button_style_choices() -> InlineKeyboardMarkup:
     )
 
 
-def button_icon_controls() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                _styled_button(
-                    text="Без анімованої іконки", callback_data="btnicon:skip"
-                )
-            ],
-        ]
-    )
-
-
 def join_button(
     gid: int,
     text: str,
     style: str | None = "success",
-    icon_custom_emoji_id: str | None = None,
 ) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 _styled_button(
-                    text=text or "🎁 Беру участь!",
+                    text=text,
                     callback_data=f"join:{gid}",
                     style=style,
-                    icon_custom_emoji_id=icon_custom_emoji_id,
                 )
             ]
         ]
@@ -103,16 +59,14 @@ def preview_button(
     gid: int,
     text: str,
     style: str | None = "success",
-    icon_custom_emoji_id: str | None = None,
 ) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 _styled_button(
-                    text=text or "🎁 Беру участь!",
+                    text=text,
                     callback_data=f"preview:noop:{gid}",
                     style=style,
-                    icon_custom_emoji_id=icon_custom_emoji_id,
                 )
             ]
         ]

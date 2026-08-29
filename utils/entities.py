@@ -1,12 +1,12 @@
 import json
-from collections.abc import Iterable
 from typing import Any
 
-from aiogram.types import MessageEntity
+from aiogram.client.default import Default
+from aiogram.types import LinkPreviewOptions, MessageEntity
 
 
 def serialize_entities(
-    entities: Iterable[MessageEntity] | None,
+    entities: list[MessageEntity] | None,
 ) -> list[dict[str, Any]]:
     return [
         entity.model_dump(mode="json", exclude_none=True) for entity in (entities or [])
@@ -20,12 +20,33 @@ def deserialize_entities(value: Any) -> list[MessageEntity]:
     return [MessageEntity.model_validate(item) for item in raw]
 
 
-def without_custom_emoji(entities: Iterable[MessageEntity]) -> list[MessageEntity]:
-    return [entity for entity in entities if entity.type != "custom_emoji"]
+def deserialize_link_preview_options(value: Any) -> LinkPreviewOptions | None:
+    if not value:
+        return None
+    raw = json.loads(value) if isinstance(value, str) else value
+    return LinkPreviewOptions(
+        is_disabled=raw.get("is_disabled"),
+        url=raw.get("url"),
+        prefer_small_media=raw.get("prefer_small_media"),
+        prefer_large_media=raw.get("prefer_large_media"),
+        show_above_text=raw.get("show_above_text"),
+    )
 
 
-def first_custom_emoji_id(entities: Iterable[MessageEntity] | None) -> str | None:
-    for entity in entities or []:
-        if entity.type == "custom_emoji" and entity.custom_emoji_id:
-            return entity.custom_emoji_id
-    return None
+def serialize_link_preview_options(
+    value: LinkPreviewOptions | None,
+) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    serialized = {}
+    for field in (
+        "is_disabled",
+        "url",
+        "prefer_small_media",
+        "prefer_large_media",
+        "show_above_text",
+    ):
+        field_value = getattr(value, field, None)
+        if field_value is not None and not isinstance(field_value, Default):
+            serialized[field] = field_value
+    return serialized or None

@@ -69,6 +69,13 @@ result is already present, or allow a retry with the same persisted winners.
    result delivery is retried.
 5. Keep the service at one replica and enable Railway restart-on-failure.
 
-Colored buttons require Telegram Bot API 9.4 clients. Animated custom emoji are kept
-when Telegram permits them; channel button icons may additionally require a Fragment
-username assigned to the bot. The bot falls back to a compatible button automatically.
+The giveaway post is the author's saved text and entities exactly; the bot does not
+append requirements, deadlines, winner counts, or other visible copy. Include a custom
+emoji, a block quote, and an expandable block quote in the smoke test.
+
+Button labels are plain author-supplied text. The bot sends the selected Telegram button
+style and never adds a custom-emoji button icon. It also never silently removes a style or
+text entity after an API error. Telegram currently permits bots to send custom emoji in
+channels only when the bot has an additional username purchased on Fragment. A Premium
+subscription of the bot owner additionally covers private, group, and supergroup chats,
+but not channels.

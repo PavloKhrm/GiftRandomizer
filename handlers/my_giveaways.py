@@ -6,7 +6,6 @@ from aiogram.exceptions import TelegramNetworkError, TelegramServerError
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
-from config import settings
 from keyboards.inline import (
     draw_delivery_audit,
     giveaway_actions,
@@ -21,7 +20,6 @@ from services.giveaways import (
     delete_giveaway,
     get_owned_giveaway,
     list_by_owner,
-    list_requirements,
     mark_publish_uncertain,
     mark_published,
     release_publish,
@@ -31,9 +29,8 @@ from services.giveaways import (
     result_delivery_progress,
 )
 from services.posting import SendResult, build_and_send
-from services.subscription import channel_preview
-from utils.entities import deserialize_entities
-from utils.texts import composed_caption, posting_done
+from utils.entities import deserialize_entities, deserialize_link_preview_options
+from utils.texts import posting_done
 
 router = Router()
 
@@ -50,46 +47,24 @@ async def _send_giveaway(
     preview: bool,
     before_send=None,
 ) -> SendResult:
-    requirements = await list_requirements(row["id"])
-    channels = await channel_preview(bot, requirements) if requirements else []
-    text = composed_caption(
-        row["caption"] or "",
-        channels,
-        row["button_text"] or "🎁 Беру участь!",
-        ends_at=row["ends_at"],
-        winners_count=row["winners_count"],
-        timezone_name=settings.timezone_name,
-    )
     return await build_and_send(
         bot,
         chat_id,
         row["id"],
-        text,
+        row["caption"] or "",
         deserialize_entities(row["caption_entities"]),
         row["media_type"],
         row["media_file_id"],
-        row["button_text"] or "🎁 Беру участь!",
+        row["button_text"],
         row["button_style"],
-        row["button_icon_custom_emoji_id"],
+        show_caption_above_media=row["show_caption_above_media"],
+        has_media_spoiler=row["has_media_spoiler"],
+        link_preview_options=deserialize_link_preview_options(
+            row["link_preview_options"]
+        ),
         preview=preview,
         before_send=before_send,
     )
-
-
-async def _fallback_notice(message: Message, result: SendResult) -> None:
-    details = []
-    if result.button_icon_fallback:
-        details.append("анімовану іконку кнопки")
-    if result.custom_emoji_fallback:
-        details.append("анімацію Premium-емодзі в тексті")
-    if result.button_style_fallback:
-        details.append("колір кнопки")
-    if details:
-        await message.answer(
-            "ℹ️ Telegram не дозволив "
-            + ", ".join(details)
-            + ". Опубліковано сумісний варіант."
-        )
 
 
 @router.message(F.text == "📦 Мої розіграші")
@@ -153,7 +128,7 @@ async def giveaway_preview(callback: CallbackQuery) -> None:
         return
     await callback.answer("Готую попередній перегляд…")
     try:
-        result = await _send_giveaway(
+        await _send_giveaway(
             callback.message.bot, callback.from_user.id, row, preview=True
         )
     except Exception as exc:
@@ -161,9 +136,6 @@ async def giveaway_preview(callback: CallbackQuery) -> None:
             f"Не вдалося створити перегляд: {exc}", parse_mode=None
         )
         return
-    await _fallback_notice(callback.message, result)
-
-
 @router.callback_query(F.data.startswith("preview:noop:"))
 async def preview_noop(callback: CallbackQuery) -> None:
     await callback.answer(
@@ -280,7 +252,6 @@ async def giveaway_post(callback: CallbackQuery) -> None:
         )
         return
     await callback.message.answer(posting_done())
-    await _fallback_notice(callback.message, result)
 
 
 @router.callback_query(F.data.startswith("gw:postreset:"))
